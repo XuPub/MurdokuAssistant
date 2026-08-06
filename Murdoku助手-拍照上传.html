@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Murdoku 大师级解谜面板</title>
+    <style>
+        :root {
+            --primary: #4a69bd;
+            --bg: #f4f4f9;
+            --danger: rgba(235, 47, 6, 0.6);
+            --mark-color: #555;
+            --used-color: #ced4da;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            gap: 20px;
+            height: 95vh;
+            box-sizing: border-box;
+        }
+        
+        /* 左侧控制台 */
+        .sidebar {
+            width: 320px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+        }
+        h2 { margin-top: 0; font-size: 20px; color: #333; border-bottom: 2px solid var(--primary); padding-bottom: 10px; }
+        .control-group { background: #f8f9fa; padding: 12px; border-radius: 8px; border: 1px solid #e9ecef; }
+        .control-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 14px; }
+        input[type="file"], input[type="number"], input[type="text"] { width: 100%; padding: 8px; box-sizing: border-box; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        input[type="range"] { width: 100%; margin-bottom: 10px; }
+        
+        button.action-btn { background: var(--primary); color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; transition: 0.2s; }
+        button.action-btn:hover { background: #3c55a5; }
+        
+        /* Undo 按钮样式 */
+        #undoBtn { background: #e1b12c; margin-top: 15px; }
+        #undoBtn:hover { background: #c89c24; }
+
+        /* 人物选择区 */
+        .character-palette { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        .char-btn { width: 45px; height: 45px; font-size: 18px; font-weight: bold; border: 2px solid #ccc; border-radius: 8px; cursor: pointer; background: white; transition: 0.1s; }
+        .char-btn.selected { border-color: var(--primary); background-color: var(--primary); color: white; transform: scale(1.1); box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        .char-btn.eraser { width: 100%; background: #ffeaa7; color: #d63031; border-color: #d63031; font-size: 16px; }
+        .char-btn.x-btn { background: #e0e0e0; color: #333; }
+        
+        /* 变灰禁用的样式 */
+        .char-btn.used { background-color: var(--used-color); color: #868e96; border-color: #adb5bd; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+        /* 右侧游戏区 */
+        .game-area {
+            flex-grow: 1;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .workspace { position: relative; transform-origin: top left; }
+        
+        #placeholder {
+            width: 400px; height: 400px; background: #eee; border: 2px dashed #ccc; 
+            display: flex; justify-content: center; align-items: center; color: #888; text-align: center; padding: 20px;
+        }
+        #bg-image { max-width: 100%; max-height: 90vh; display: none; border: 1px solid #ddd; }
+        
+        /* 透明交互网格 */
+        #grid-overlay {
+            position: absolute;
+            top: 0; left: 0;
+            display: grid;
+            border: 2px solid #333;
+            box-sizing: border-box;
+        }
+        .cell {
+            border: 1px dashed rgba(0, 0, 0, 0.4);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 36px;
+            font-weight: 900;
+            color: #000;
+            text-shadow: 2px 2px 4px rgba(255,255,255,0.8), -2px -2px 4px rgba(255,255,255,0.8);
+            cursor: pointer;
+            box-sizing: border-box;
+            position: relative;
+            user-select: none;
+            touch-action: none;
+            min-width: 0; min-height: 0; overflow: hidden;
+        }
+        .cell:hover { background-color: rgba(74, 105, 189, 0.15); }
+        .cell.error { background-color: var(--danger) !important; color: white; text-shadow: none; }
+        
+        .marks-container { display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: flex-start; width: 100%; height: 100%; padding: 2px; box-sizing: border-box; gap: 2px; overflow: hidden; }
+        .mark-item { font-size: 14px; font-weight: bold; color: var(--mark-color); line-height: 1; text-shadow: 1px 1px 2px rgba(255,255,255,0.9); }
+
+        .instructions { font-size: 12px; color: #666; margin-top: 10px; line-height: 1.6; }
+        .instructions span { color: #d63031; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <!-- 左侧控制台 -->
+    <div class="sidebar">
+        <h2>1. 导入与网格配置</h2>
+        <div class="control-group">
+            <label>上传案件截图 (仅限 JPG/PNG)</label>
+            <input type="file" id="imageInput" accept="image/png, image/jpeg">
+            <label>网格尺寸 (调整后请点击刷新)</label>
+            <input type="number" id="gridSize" value="6" min="4" max="12">
+            <button class="action-btn" onclick="generateGrid()">刷新网格与嫌疑人</button>
+        </div>
+
+        <div class="control-group">
+            <label>微调网格覆盖位置</label>
+            <label style="margin-top:10px;">水平 X</label>
+            <input type="range" id="posX" min="0" max="1000" value="0" oninput="updateGridTransform()">
+            <label>垂直 Y</label>
+            <input type="range" id="posY" min="0" max="1000" value="0" oninput="updateGridTransform()">
+            <label>总宽度</label>
+            <input type="range" id="width" min="100" max="1200" value="400" oninput="updateGridTransform()">
+            <label>总高度</label>
+            <input type="range" id="height" min="100" max="1200" value="400" oninput="updateGridTransform()">
+        </div>
+
+        <h2>2. 游戏推演区</h2>
+        <div class="control-group">
+            <label>嫌疑人名单 (已自动生成)</label>
+            <input type="text" id="charInput" value="" onchange="generateCharPalette()">
+            
+            <label style="margin-top:10px;">选择操作对象：</label>
+            <div class="character-palette" id="palette">
+                <!-- 动态生成按钮 -->
+            </div>
+            
+            <!-- 全新 Undo 按钮 -->
+            <button class="action-btn" id="undoBtn" onclick="undo()">↩ 撤销上一步 (Undo)</button>
+        </div>
+
+        <div class="instructions">
+            <strong>操作指南：</strong><br>
+            • <span>单点格子</span>：做小字候选记号。<br>
+            • <span>长按格子</span>：确认嫌疑人！所在行列的空位将自动补全 X。<br>
+            • <span>落网变灰</span>：被长按确认的嫌疑人将变灰禁用。<br>
+            • <span>随时撤销</span>：点错随时可按 Undo 退回。
+        </div>
+    </div>
+
+    <!-- 右侧游戏区 -->
+    <div class="game-area">
+        <div class="workspace" id="workspace">
+            <div id="placeholder">请在左侧上传 Murdoku 的<strong>图片截图</strong></div>
+            <img id="bg-image" src="" alt="">
+            <div id="grid-overlay"></div>
+        </div>
+    </div>
+
+    <script>
+        let size = 6;
+        let selectedChar = null;
+        let gridData = [];
+        
+        let pressTimer = null;
+        let isLongPress = false;
+        
+        // 撤销状态栈
+        let historyStack = [];
+
+        document.getElementById('imageInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (!file.type.startsWith('image/')) {
+                alert("⚠️ 请上传 JPG 或 PNG 图片。");
+                e.target.value = ''; return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const imgObj = new Image();
+                imgObj.onload = function() {
+                    const imgNode = document.getElementById('bg-image');
+                    imgNode.src = this.src;
+                    imgNode.style.display = 'block';
+                    document.getElementById('placeholder').style.display = 'none'; 
+                    
+                    document.getElementById('posX').max = this.width;
+                    document.getElementById('posY').max = this.height;
+                    document.getElementById('width').max = this.width * 1.5; 
+                    document.getElementById('height').max = this.height * 1.5;
+                    
+                    let initSize = Math.min(this.width, this.height) * 0.8;
+                    document.getElementById('width').value = initSize;
+                    document.getElementById('height').value = initSize;
+                    document.getElementById('posX').value = (this.width - initSize) / 2;
+                    document.getElementById('posY').value = (this.height - initSize) / 2;
+                    
+                    generateGrid();
+                };
+                imgObj.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // 核心：自动计算生成字母列表
+        function autoGenerateCharacters(gridSize) {
+            let chars = [];
+            // 根据尺寸生成 N-1 个嫌疑人字母
+            for (let i = 0; i < gridSize - 1; i++) {
+                chars.push(String.fromCharCode(65 + i)); // 65 代表 'A'
+            }
+            chars.push('V'); // 最后加入受害者 V
+            document.getElementById('charInput').value = chars.join(',');
+            generateCharPalette();
+        }
+
+        // 初始化 / 刷新网格
+        function generateGrid() {
+            size = parseInt(document.getElementById('gridSize').value) || 6;
+            
+            // 每次重新生成表格，自动更新字母、清空撤销记录并重启状态
+            autoGenerateCharacters(size);
+            historyStack = [];
+            updateUndoButton();
+            
+            gridData = [];
+            for(let r = 0; r < size; r++) {
+                let row = [];
+                for(let c = 0; c < size; c++) {
+                    row.push({ confirmed: '', marks: new Set() });
+                }
+                gridData.push(row);
+            }
+            
+            const overlay = document.getElementById('grid-overlay');
+            overlay.style.display = 'grid';
+            overlay.style.gridTemplateColumns = `repeat(${size}, minmax(0, 1fr))`;
+            overlay.style.gridTemplateRows = `repeat(${size}, minmax(0, 1fr))`;
+            overlay.innerHTML = '';
+
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.r = r;
+                    cell.dataset.c = c;
+                    cell.id = `cell-${r}-${c}`; 
+                    
+                    cell.onpointerdown = (e) => { if(e.button > 0) return; handlePointerDown(e, r, c, cell); };
+                    cell.onpointerup = (e) => { if(e.button > 0) return; handlePointerUp(e, r, c, cell); };
+                    cell.onpointerleave = () => handlePointerLeave();
+                    
+                    overlay.appendChild(cell);
+                }
+            }
+            updateGridTransform();
+            updateUsedCharacters(); // 重置按钮颜色
+        }
+
+        function updateGridTransform() {
+            const overlay = document.getElementById('grid-overlay');
+            overlay.style.left = `${document.getElementById('posX').value}px`;
+            overlay.style.top = `${document.getElementById('posY').value}px`;
+            overlay.style.width = `${document.getElementById('width').value}px`;
+            overlay.style.height = `${document.getElementById('height').value}px`;
+        }
+
+        // 渲染人物按钮
+        function generateCharPalette() {
+            const chars = document.getElementById('charInput').value.split(',').map(s => s.trim()).filter(s => s);
+            const palette = document.getElementById('palette');
+            palette.innerHTML = '';
+
+            chars.forEach(char => {
+                const btn = document.createElement('button');
+                btn.className = 'char-btn';
+                btn.innerText = char;
+                btn.dataset.char = char; // 绑定数据方便变灰检测
+                btn.onclick = (e) => selectChar(char, e.target);
+                palette.appendChild(btn);
+            });
+
+            const xBtn = document.createElement('button');
+            xBtn.className = 'char-btn x-btn';
+            xBtn.innerText = 'X';
+            xBtn.dataset.char = 'X';
+            xBtn.onclick = (e) => selectChar('X', e.target);
+            palette.appendChild(xBtn);
+
+            const eraser = document.createElement('button');
+            eraser.className = 'char-btn eraser';
+            eraser.innerText = '清除/橡皮';
+            eraser.dataset.char = 'ERASE';
+            eraser.onclick = (e) => selectChar('ERASE', e.target);
+            palette.appendChild(eraser);
+            
+            selectedChar = null;
+        }
+
+        // 选中操作对象（禁用的自动拦截）
+        function selectChar(char, btnElement) {
+            if (btnElement.classList.contains('used')) return; // 变灰的不可选
+            selectedChar = char;
+            document.querySelectorAll('.char-btn').forEach(btn => btn.classList.remove('selected'));
+            btnElement.classList.add('selected');
+        }
+
+        // ---------- 状态撤销核心逻辑 ----------
+        function cloneGridData() {
+            // 深拷贝数据，专门处理 Set 类型
+            return gridData.map(row => 
+                row.map(cell => ({ confirmed: cell.confirmed, marks: new Set(cell.marks) }))
+            );
+        }
+
+        function saveState() {
+            historyStack.push(cloneGridData());
+            updateUndoButton();
+        }
+
+        function undo() {
+            if (historyStack.length === 0) return;
+            // 弹出上一层状态
+            gridData = historyStack.pop();
+            
+            // 重新渲染整个面板
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    renderCell(r, c, document.getElementById(`cell-${r}-${c}`));
+                }
+            }
+            
+            checkSudokuRules();
+            updateUsedCharacters(); // 撤销后重新检测哪些被禁用
+            updateUndoButton();
+        }
+
+        function updateUndoButton() {
+            const btn = document.getElementById('undoBtn');
+            if (historyStack.length === 0) {
+                btn.style.opacity = '0.5';
+                btn.style.cursor = 'not-allowed';
+            } else {
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+            }
+        }
+        
+        // ---------- 变灰禁用逻辑 ----------
+        function updateUsedCharacters() {
+            let used = new Set();
+            // 收集地图上所有已被确认的嫌疑人
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    let val = gridData[r][c].confirmed;
+                    if (val && val !== 'X') used.add(val);
+                }
+            }
+            
+            // 遍历所有面板按钮
+            document.querySelectorAll('.char-btn').forEach(btn => {
+                let char = btn.dataset.char;
+                if (char && char !== 'X' && char !== 'ERASE') {
+                    if (used.has(char)) {
+                        btn.classList.add('used'); // 落网变灰
+                        if (selectedChar === char) {
+                            btn.classList.remove('selected');
+                            selectedChar = null;
+                        }
+                    } else {
+                        btn.classList.remove('used'); // 没落网的恢复正常
+                    }
+                }
+            });
+        }
+
+        // ---------- 触控与鼠标事件 ----------
+        function handlePointerDown(e, r, c, cell) {
+            if (!selectedChar) return; 
+            isLongPress = false;
+            pressTimer = setTimeout(() => {
+                isLongPress = true;
+                if (selectedChar !== 'ERASE') confirmChar(r, c, cell); 
+            }, 400);
+        }
+
+        function handlePointerUp(e, r, c, cell) {
+            clearTimeout(pressTimer); 
+            if (!isLongPress && selectedChar) {
+                if (selectedChar === 'X' || selectedChar === 'ERASE') confirmChar(r, c, cell); 
+                else toggleMark(r, c, cell);  
+            }
+        }
+
+        function handlePointerLeave() { clearTimeout(pressTimer); }
+
+        function toggleMark(r, c, cell) {
+            let data = gridData[r][c];
+            if (data.confirmed && data.confirmed !== 'X') return;
+            
+            saveState(); // 操作前保存状态
+            
+            data.confirmed = ''; 
+            if (data.marks.has(selectedChar)) data.marks.delete(selectedChar);
+            else data.marks.add(selectedChar);
+            
+            renderCell(r, c, cell);
+            checkSudokuRules();
+        }
+
+        function confirmChar(r, c, cell) {
+            saveState(); // 操作前保存状态
+            
+            let data = gridData[r][c];
+            if (selectedChar === 'ERASE') {
+                data.confirmed = '';
+                data.marks.clear();
+            } else if (selectedChar === 'X') {
+                data.confirmed = 'X';
+                data.marks.clear();
+            } else {
+                data.confirmed = selectedChar;
+                data.marks.clear(); 
+                
+                // 自动补全 X
+                for (let i = 0; i < size; i++) {
+                    if (i !== c) {
+                        let targetData = gridData[r][i];
+                        if (!targetData.confirmed || targetData.confirmed === 'X') {
+                            targetData.confirmed = 'X';
+                            targetData.marks.clear();
+                            renderCell(r, i, document.getElementById(`cell-${r}-${i}`));
+                        }
+                    }
+                    if (i !== r) {
+                        let targetData = gridData[i][c];
+                        if (!targetData.confirmed || targetData.confirmed === 'X') {
+                            targetData.confirmed = 'X';
+                            targetData.marks.clear();
+                            renderCell(i, c, document.getElementById(`cell-${i}-${c}`));
+                        }
+                    }
+                }
+            }
+            
+            renderCell(r, c, cell);
+            checkSudokuRules();
+            updateUsedCharacters(); // 更新按钮变灰状态
+            
+            cell.style.transform = "scale(0.9)";
+            setTimeout(() => cell.style.transform = "scale(1)", 100);
+        }
+
+        // ---------- 渲染与规则判定 ----------
+        function renderCell(r, c, cell) {
+            const data = gridData[r][c];
+            cell.innerHTML = '';
+            
+            if (data.confirmed) {
+                if (data.confirmed === 'X') {
+                    cell.innerHTML = '<span style="color: rgba(0,0,0,0.15); font-weight: normal; font-size: 1.2em;">X</span>';
+                } else {
+                    cell.innerText = data.confirmed;
+                }
+            } else if (data.marks.size > 0) {
+                const marksDiv = document.createElement('div');
+                marksDiv.className = 'marks-container';
+                Array.from(data.marks).sort().forEach(mark => {
+                    const m = document.createElement('div');
+                    m.className = 'mark-item';
+                    m.innerText = mark;
+                    marksDiv.appendChild(m);
+                });
+                cell.appendChild(marksDiv);
+            }
+        }
+
+        function checkSudokuRules() {
+            const cells = document.querySelectorAll('.cell');
+            cells.forEach(cell => cell.classList.remove('error'));
+
+            for (let r = 0; r < size; r++) {
+                let persons = 0;
+                for (let c = 0; c < size; c++) {
+                    let val = gridData[r][c].confirmed;
+                    if (val && val !== 'X') persons++;
+                }
+                if (persons > 1) cells.forEach(cell => { if (parseInt(cell.dataset.r) === r) cell.classList.add('error'); });
+            }
+
+            for (let c = 0; c < size; c++) {
+                let persons = 0;
+                for (let r = 0; r < size; r++) {
+                    let val = gridData[r][c].confirmed;
+                    if (val && val !== 'X') persons++;
+                }
+                if (persons > 1) cells.forEach(cell => { if (parseInt(cell.dataset.c) === c) cell.classList.add('error'); });
+            }
+        }
+
+        window.onload = () => {
+            generateGrid();
+        };
+    </script>
+</body>
+</html>
