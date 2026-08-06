@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Murdoku 终极典藏版 (单页答案对应版)</title>
+    <!-- 引入 PDF.js 核心库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <style>
+        :root { 
+            --primary: #4a69bd; 
+            --bg: #f4f4f9; 
+            --danger: rgba(235, 47, 6, 0.6); 
+            --mark-color: #333; 
+            --used-color: #ced4da; 
+            --success: #27ae60; 
+        }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background-color: var(--bg); 
+            margin: 0; 
+            padding: 20px; 
+            display: flex; 
+            gap: 20px; 
+            height: 95vh; 
+            box-sizing: border-box; 
+        }
+        
+        /* 侧边栏 */
+        .sidebar { 
+            width: 340px; 
+            background: white; 
+            padding: 20px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
+            display: flex; 
+            flex-direction: column; 
+            gap: 15px; 
+            overflow-y: auto; 
+            flex-shrink: 0; 
+        }
+        h2 { margin-top: 0; font-size: 18px; color: #333; border-bottom: 2px solid var(--primary); padding-bottom: 8px; }
+        .control-group { background: #f8f9fa; padding: 12px; border-radius: 8px; border: 1px solid #e9ecef; }
+        .control-group label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 13px; color: #444; }
+        input[type="file"], input[type="number"], input[type="text"], select { width: 100%; padding: 8px; box-sizing: border-box; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        input[type="range"] { width: 100%; margin-bottom: 10px; }
+        
+        button.action-btn { background: var(--primary); color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; transition: 0.2s; margin-bottom: 5px; }
+        button.action-btn:hover { background: #3c55a5; }
+        #undoBtn { background: #e1b12c; margin-top: 5px; } 
+        #undoBtn:hover { background: #c89c24; }
+        #answerBtn { background: var(--success); margin-top: 15px; font-size: 16px; padding: 12px; display: none; box-shadow: 0 4px 6px rgba(39, 174, 96, 0.3); } 
+        #answerBtn:hover { background: #219653; }
+
+        /* 缩放按钮样式 */
+        .zoom-controls { display: flex; gap: 5px; align-items: center; margin-bottom: 10px; }
+        .zoom-btn { background: #6c5ce7; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; flex: 1; }
+        .zoom-btn:hover { background: #5649c0; }
+
+        /* 人物选择区 */
+        .character-palette { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+        .char-btn { width: 42px; height: 42px; font-size: 16px; font-weight: bold; border: 2px solid #ccc; border-radius: 8px; cursor: pointer; background: white; transition: 0.1s; }
+        .char-btn.selected { border-color: var(--primary); background-color: var(--primary); color: white; transform: scale(1.1); box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        .char-btn.eraser { width: 100%; background: #ffeaa7; color: #d63031; border-color: #d63031; font-size: 14px; }
+        .char-btn.x-btn { background: #e0e0e0; color: #333; }
+        .char-btn.used { background-color: var(--used-color); color: #868e96; border-color: #adb5bd; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+        /* 指南与说明 */
+        .instructions { font-size: 12px; color: #666; margin-top: 5px; line-height: 1.6; }
+        .instructions span { color: #d63031; font-weight: bold; }
+
+        /* 右侧游戏区 */
+        .game-area { flex-grow: 1; background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); overflow: hidden; position: relative; display: flex; flex-direction: column;}
+        .game-header { padding: 15px 20px; background: #2c3e50; color: white; display: flex; justify-content: space-between; align-items: center; border-radius: 12px 12px 0 0; }
+        .game-header select { width: 250px; margin-bottom: 0; font-weight: bold; }
+        
+        .workspace-container { flex-grow: 1; overflow: auto; position: relative; padding: 20px; background: #888; display: block; box-sizing: border-box; }
+        .workspace { position: relative; transform-origin: 0 0; display: inline-block; box-shadow: 0 10px 30px rgba(0,0,0,0.3); background: white; }
+        
+        #pdf-loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 20px; font-weight: bold; color: #333; background: white; padding: 20px 40px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); display: none; z-index: 100; }
+        #bg-image { max-width: none; display: block; background: white; }
+        
+        /* 透明交互网格 */
+        #grid-overlay { position: absolute; top: 0; left: 0; display: grid; border: 3px solid #000; box-sizing: border-box; background: rgba(255, 255, 255, 0.2); }
+        
+        /* 利用 Container Query 让单元格字体 100% 自适应格子大小 */
+        .cell { 
+            container-type: size; 
+            border: 1px dashed rgba(0, 0, 0, 0.4); 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            cursor: pointer; 
+            box-sizing: border-box; 
+            position: relative; 
+            user-select: none; 
+            touch-action: none; 
+            min-width: 0; 
+            min-height: 0; 
+            overflow: hidden; 
+            transition: transform 0.1s; 
+        }
+        .cell:hover { background-color: rgba(74, 105, 189, 0.25); }
+        .cell.error { background-color: var(--danger) !important; color: white !important; text-shadow: none !important; }
+        
+        .cell-text {
+            font-size: 70cqh;
+            font-weight: 900;
+            line-height: 1;
+            color: #000;
+            text-shadow: 2px 2px 4px rgba(255,255,255,0.9), -2px -2px 4px rgba(255,255,255,0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+        }
+
+        .cell-x {
+            font-size: 65cqh;
+            font-weight: bold;
+            color: rgba(0, 0, 0, 0.25);
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+        }
+
+        .marks-container { 
+            display: flex; 
+            flex-wrap: wrap; 
+            justify-content: flex-start; 
+            align-content: flex-start; 
+            width: 100%; 
+            height: 100%; 
+            padding: 4cqw; 
+            box-sizing: border-box; 
+            gap: 2cqw; 
+            overflow: hidden; 
+            pointer-events: none; 
+        }
+        .mark-item { 
+            font-size: 28cqh; 
+            font-weight: 900; 
+            color: var(--mark-color); 
+            line-height: 1; 
+            text-shadow: 1px 1px 2px rgba(255,255,255,0.9); 
+        }
+
+        /* 答案弹窗 Modal */
+        #answer-modal { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 1000; backdrop-filter: blur(5px); }
+        .modal-content { background: white; border-radius: 12px; padding: 20px; max-width: 90%; max-height: 95%; display: flex; flex-direction: column; align-items: center; position: relative; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+        .modal-header { width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .modal-header h3 { margin: 0; color: #333; font-size: 20px; }
+        .modal-hint { font-size: 15px; color: #d35400; font-weight: bold; background: #fdebd0; padding: 6px 12px; border-radius: 6px; }
+        .close-btn { background: #e74c3c; color: white; border: none; padding: 8px 16px; font-size: 16px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .close-btn:hover { background: #c0392b; }
+        #answer-img-container { overflow: auto; max-width: 100%; max-height: 75vh; border: 1px solid #ccc; background: #f9f9f9; }
+        #modal-ans-img { display: block; margin: 0 auto; max-width: 100%; }
+    </style>
+</head>
+<body>
+
+    <!-- 左侧控制台 -->
+    <div class="sidebar">
+        <h2>1. 游戏库管理</h2>
+        <div class="control-group">
+            <label id="mainUploadLabel">1️⃣ 选择 题目 PDF</label>
+            <input type="file" id="mainPdfInput" accept="application/pdf">
+            
+            <label id="ansUploadLabel" style="margin-top:10px; color:var(--success);">2️⃣ 选择 答案 PDF (可选)</label>
+            <input type="file" id="ansPdfInput" accept="application/pdf">
+
+            <button class="action-btn" id="startProcessBtn" onclick="startProcessingPDF()" style="margin-top:15px; background:#20bf6b; font-size:15px;">🚀 解析并生成关卡</button>
+            <button class="action-btn" id="clearDBBtn" onclick="clearDatabase()" style="background:#e74c3c; display:none; margin-top:10px;">🗑 删除本地 PDF 缓存</button>
+        </div>
+
+        <h2>2. 视图缩放与网格微调</h2>
+        <div class="control-group">
+            <label>画布缩放 (<span id="zoomPercent">100%</span>)</label>
+            <div class="zoom-controls">
+                <button class="zoom-btn" onclick="changeZoom(-0.05)">➖ 缩小</button>
+                <button class="zoom-btn" onclick="resetZoom()">🔄 适应窗口</button>
+                <button class="zoom-btn" onclick="changeZoom(0.05)">➕ 放大</button>
+            </div>
+            <input type="range" id="zoomRange" min="0.1" max="2.0" step="0.02" value="1" oninput="setZoom(parseFloat(this.value))">
+
+            <label style="margin-top:10px;">当前网格尺寸</label>
+            <div style="display:flex; gap:10px;">
+                <input type="number" id="gridSize" value="6" min="4" max="12">
+                <button class="action-btn" onclick="applyNewGridSize()">刷新应用</button>
+            </div>
+            
+            <label style="margin-top:5px;">网格 X轴</label>
+            <input type="range" id="posX" min="0" max="3000" value="0" oninput="updateGridTransform()">
+            <label>网格 Y轴</label>
+            <input type="range" id="posY" min="0" max="3000" value="0" oninput="updateGridTransform()">
+            <label>网格宽度</label>
+            <input type="range" id="width" min="100" max="2000" value="400" oninput="updateGridTransform()">
+            <label>网格高度</label>
+            <input type="range" id="height" min="100" max="2000" value="400" oninput="updateGridTransform()">
+        </div>
+
+        <h2>3. 案件推演区</h2>
+        <div class="control-group">
+            <label>嫌疑人名单 (根据尺寸自动生成)</label>
+            <input type="text" id="charInput" value="" onchange="generateCharPalette()">
+            
+            <label style="margin-top:5px;">选择操作嫌疑人：</label>
+            <div class="character-palette" id="palette"></div>
+            
+            <button class="action-btn" id="undoBtn" onclick="undo()">↩ 撤销上一步 (Undo)</button>
+            <button class="action-btn" id="answerBtn" onclick="showAnswer()">👁️ 查看本关答案</button>
+        </div>
+
+        <div class="instructions">
+            <strong>操作指南：</strong><br>
+            • <span>单点格子</span>：做/取消小字候选记号。<br>
+            • <span>长按格子</span>：确认嫌疑人！所在行列空位自动补全 X。<br>
+            • <span>落网变灰</span>：被长按确认的嫌疑人将自动变灰禁用。<br>
+            • <span>随时撤销</span>：点错随时可按 Undo 退回。
+        </div>
+    </div>
+
+    <!-- 右侧游戏区 -->
+    <div class="game-area">
+        <div class="game-header">
+            <div>
+                <strong>当前关卡：</strong>
+                <select id="gameSelector" onchange="loadGameIndex(this.value)">
+                    <option value="">请先上传题目 PDF...</option>
+                </select>
+            </div>
+            <div style="font-size:14px; opacity:0.8;">双页并排展示 | 所有推演进度已实时自动保存</div>
+        </div>
+        <div class="workspace-container" id="workspaceContainer">
+            <div id="pdf-loading">⏳ 正在从 PDF 解析高清页面，请稍候...</div>
+            <div class="workspace" id="workspace">
+                <img id="bg-image" src="" alt="">
+                <div id="grid-overlay"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 答案查看弹窗 -->
+    <div id="answer-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔍 关卡答案查看</h3>
+                <span class="modal-hint" id="answer-hint"></span>
+                <button class="close-btn" onclick="document.getElementById('answer-modal').style.display='none'">关闭 X</button>
+            </div>
+            <div id="answer-img-container">
+                <img id="modal-ans-img" src="" alt="答案图片加载中...">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        let db = null;
+        let mainPdfDoc = null;
+        let ansPdfDoc = null;
+        let totalGames = 0;
+        let currentLevel = 1;
+        
+        let currentZoom = 1.0;
+        let rawCanvasWidth = 0;
+        let rawCanvasHeight = 0;
+
+        let size = 6;
+        let selectedChar = null;
+        let gridData = [];
+        let pressTimer = null;
+        let isLongPress = false;
+        let historyStack = [];
+
+        // 1. IndexedDB 存储
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open("MurdokuDB", 1);
+                request.onupgradeneeded = (e) => {
+                    const database = e.target.result;
+                    if (!database.objectStoreNames.contains("pdfStore")) {
+                        database.createObjectStore("pdfStore");
+                    }
+                };
+                request.onsuccess = (e) => { db = e.target.result; resolve(db); };
+                request.onerror = (e) => reject(e);
+            });
+        }
+
+        function saveToDB(key, val) {
+            return new Promise((resolve) => {
+                if (!db) return resolve();
+                const tx = db.transaction("pdfStore", "readwrite");
+                tx.objectStore("pdfStore").put(val, key);
+                tx.oncomplete = () => resolve();
+            });
+        }
+
+        function getFromDB(key) {
+            return new Promise((resolve) => {
+                if (!db) return resolve(null);
+                const tx = db.transaction("pdfStore", "readonly");
+                const req = tx.objectStore("pdfStore").get(key);
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => resolve(null);
+            });
+        }
+
+        // 2. PDF 解析与交互
+        async function startProcessingPDF() {
+            const mainFile = document.getElementById('mainPdfInput').files[0];
+            const ansFile = document.getElementById('ansPdfInput').files[0];
+
+            if (!mainFile && !mainPdfDoc) {
+                alert('请先选择题目 PDF 文件！');
+                return;
+            }
+
+            showLoading(true);
+            try {
+                if (mainFile) {
+                    const arrayBuffer = await mainFile.arrayBuffer();
+                    await saveToDB('mainPdf', arrayBuffer);
+                    await parseMainPdf(arrayBuffer);
+                }
+                if (ansFile) {
+                    const arrayBuffer = await ansFile.arrayBuffer();
+                    await saveToDB('ansPdf', arrayBuffer);
+                    await parseAnsPdf(arrayBuffer);
+                }
+                alert(`🎉 解析成功！共生成 ${totalGames} 个关卡。`);
+            } catch (err) {
+                console.error(err);
+                alert('⚠️ PDF 解析失败！请确保文件有效且非加密格式。');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function parseMainPdf(arrayBuffer) {
+            mainPdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
+            totalGames = Math.ceil(mainPdfDoc.numPages / 2);
+
+            const selector = document.getElementById('gameSelector');
+            selector.innerHTML = '';
+            for (let i = 1; i <= totalGames; i++) {
+                const opt = document.createElement('option');
+                opt.value = i;
+                const p1 = (i - 1) * 2 + 1;
+                const p2 = Math.min(i * 2, mainPdfDoc.numPages);
+                opt.textContent = `第 ${i} 关 (页 ${p1}-${p2}) / 共 ${totalGames} 关`;
+                selector.appendChild(opt);
+            }
+
+            document.getElementById('clearDBBtn').style.display = 'block';
+            await loadGameIndex(1);
+        }
+
+        async function parseAnsPdf(arrayBuffer) {
+            ansPdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
+            document.getElementById('answerBtn').style.display = 'block';
+        }
+
+        // 渲染题目（双页拼接）
+        async function renderTwoPagesToCanvas(pdfDoc, startPageNum) {
+            const page1 = await pdfDoc.getPage(startPageNum);
+            const vp1 = page1.getViewport({ scale: 1.5 });
+
+            let page2 = null, vp2 = null;
+            if (startPageNum + 1 <= pdfDoc.numPages) {
+                page2 = await pdfDoc.getPage(startPageNum + 1);
+                vp2 = page2.getViewport({ scale: 1.5 });
+            }
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const width2 = vp2 ? vp2.width : 0;
+            const height2 = vp2 ? vp2.height : 0;
+
+            canvas.width = vp1.width + width2;
+            canvas.height = Math.max(vp1.height, height2);
+
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const c1 = document.createElement('canvas');
+            c1.width = vp1.width; c1.height = vp1.height;
+            await page1.render({ canvasContext: c1.getContext('2d'), viewport: vp1 }).promise;
+            ctx.drawImage(c1, 0, 0);
+
+            if (page2 && vp2) {
+                const c2 = document.createElement('canvas');
+                c2.width = vp2.width; c2.height = vp2.height;
+                await page2.render({ canvasContext: c2.getContext('2d'), viewport: vp2 }).promise;
+                ctx.drawImage(c2, vp1.width, 0);
+            }
+
+            return canvas;
+        }
+
+        // 核心新增：单独渲染 1 页（用于答案查看，高清且无需拼接）
+        async function renderSinglePageToCanvas(pdfDoc, pageNum) {
+            const page = await pdfDoc.getPage(pageNum);
+            const vp = page.getViewport({ scale: 2.0 }); // 提升分辨率放大清晰度
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = vp.width;
+            canvas.height = vp.height;
+
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            await page.render({ canvasContext: ctx, viewport: vp }).promise;
+            return canvas;
+        }
+
+        async function loadGameIndex(index) {
+            if (!mainPdfDoc) return;
+            currentLevel = parseInt(index);
+            document.getElementById('gameSelector').value = currentLevel;
+            showLoading(true);
+
+            try {
+                const startPage = (currentLevel - 1) * 2 + 1;
+                const canvas = await renderTwoPagesToCanvas(mainPdfDoc, startPage);
+
+                rawCanvasWidth = canvas.width;
+                rawCanvasHeight = canvas.height;
+
+                const bgImg = document.getElementById('bg-image');
+                bgImg.onload = () => autoFitZoom();
+                bgImg.src = canvas.toDataURL('image/png');
+
+                loadLevelConfig();
+                generateGrid(); 
+            } catch (err) {
+                console.error(err);
+                alert('渲染关卡页面出错！');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // 3. 答案查看映射修复
+        async function showAnswer() {
+            if (!ansPdfDoc) {
+                alert('请先上传答案 PDF！');
+                return;
+            }
+            showLoading(true);
+            try {
+                // 计算映射关系：关卡1-2 -> 答案第1页，关卡3-4 -> 答案第2页
+                const targetAnsPage = Math.ceil(currentLevel / 2);
+                
+                // 安全边界保护，防止关卡数超出答案总页数
+                const actualAnsPage = Math.min(targetAnsPage, ansPdfDoc.numPages);
+
+                const canvas = await renderSinglePageToCanvas(ansPdfDoc, actualAnsPage);
+
+                document.getElementById('modal-ans-img').src = canvas.toDataURL('image/png');
+                
+                // 更加清晰的提示
+                const startL = (actualAnsPage - 1) * 2 + 1;
+                const endL = startL + 1;
+                document.getElementById('answer-hint').innerText = `当前：第 ${currentLevel} 关 (包含关卡 ${startL} 与 ${endL} 答案)`;
+                document.getElementById('answer-modal').style.display = 'flex';
+            } catch (err) {
+                alert('获取答案失败！');
+                console.error(err);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // 推演核心算法
+        function autoGenerateCharacters(gridSize) {
+            let chars = [];
+            for (let i = 0; i < gridSize - 1; i++) {
+                chars.push(String.fromCharCode(65 + i));
+            }
+            chars.push('V'); 
+            document.getElementById('charInput').value = chars.join(',');
+            generateCharPalette();
+        }
+
+        function generateGrid() {
+            size = parseInt(document.getElementById('gridSize').value) || 6;
+            
+            autoGenerateCharacters(size);
+            historyStack = [];
+            updateUndoButton();
+            
+            gridData = [];
+            for(let r = 0; r < size; r++) {
+                let row = [];
+                for(let c = 0; c < size; c++) {
+                    row.push({ confirmed: '', marks: new Set() });
+                }
+                gridData.push(row);
+            }
+            
+            const overlay = document.getElementById('grid-overlay');
+            overlay.style.display = 'grid';
+            overlay.style.gridTemplateColumns = `repeat(${size}, minmax(0, 1fr))`;
+            overlay.style.gridTemplateRows = `repeat(${size}, minmax(0, 1fr))`;
+            overlay.innerHTML = '';
+
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.r = r;
+                    cell.dataset.c = c;
+                    cell.id = `cell-${r}-${c}`; 
+                    
+                    cell.onpointerdown = (e) => { if(e.button > 0) return; handlePointerDown(e, r, c, cell); };
+                    cell.onpointerup = (e) => { if(e.button > 0) return; handlePointerUp(e, r, c, cell); };
+                    cell.onpointerleave = () => handlePointerLeave();
+                    
+                    overlay.appendChild(cell);
+                }
+            }
+            updateGridTransform();
+            updateUsedCharacters();
+        }
+
+        function applyNewGridSize() {
+            generateGrid();
+        }
+
+        function generateCharPalette() {
+            const chars = document.getElementById('charInput').value.split(',').map(s => s.trim()).filter(s => s);
+            const palette = document.getElementById('palette');
+            palette.innerHTML = '';
+
+            chars.forEach(char => {
+                const btn = document.createElement('button');
+                btn.className = 'char-btn';
+                btn.innerText = char;
+                btn.dataset.char = char;
+                btn.onclick = (e) => selectChar(char, e.target);
+                palette.appendChild(btn);
+            });
+
+            const xBtn = document.createElement('button');
+            xBtn.className = 'char-btn x-btn';
+            xBtn.innerText = 'X';
+            xBtn.dataset.char = 'X';
+            xBtn.onclick = (e) => selectChar('X', e.target);
+            palette.appendChild(xBtn);
+
+            const eraser = document.createElement('button');
+            eraser.className = 'char-btn eraser';
+            eraser.innerText = '🧹 橡皮擦/清除';
+            eraser.dataset.char = 'ERASE';
+            eraser.onclick = (e) => selectChar('ERASE', e.target);
+            palette.appendChild(eraser);
+            
+            selectedChar = null;
+        }
+
+        function selectChar(char, btnElement) {
+            if (btnElement.classList.contains('used')) return; 
+            selectedChar = char;
+            document.querySelectorAll('.char-btn').forEach(btn => btn.classList.remove('selected'));
+            btnElement.classList.add('selected');
+        }
+
+        function cloneGridData() {
+            return gridData.map(row => 
+                row.map(cell => ({ confirmed: cell.confirmed, marks: new Set(cell.marks) }))
+            );
+        }
+
+        function saveState() {
+            historyStack.push(cloneGridData());
+            updateUndoButton();
+        }
+
+        function undo() {
+            if (historyStack.length === 0) return;
+            gridData = historyStack.pop();
+            
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    renderCell(r, c, document.getElementById(`cell-${r}-${c}`));
+                }
+            }
+            
+            checkSudokuRules();
+            updateUsedCharacters();
+            updateUndoButton();
+        }
+
+        function updateUndoButton() {
+            const btn = document.getElementById('undoBtn');
+            if (historyStack.length === 0) {
+                btn.style.opacity = '0.5';
+                btn.style.cursor = 'not-allowed';
+            } else {
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+            }
+        }
+        
+        function updateUsedCharacters() {
+            let used = new Set();
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    let val = gridData[r][c].confirmed;
+                    if (val && val !== 'X') used.add(val);
+                }
+            }
+            
+            document.querySelectorAll('.char-btn').forEach(btn => {
+                let char = btn.dataset.char;
+                if (char && char !== 'X' && char !== 'ERASE') {
+                    if (used.has(char)) {
+                        btn.classList.add('used');
+                        if (selectedChar === char) {
+                            btn.classList.remove('selected');
+                            selectedChar = null;
+                        }
+                    } else {
+                        btn.classList.remove('used');
+                    }
+                }
+            });
+        }
+
+        function handlePointerDown(e, r, c, cell) {
+            if (!selectedChar) return; 
+            isLongPress = false;
+            pressTimer = setTimeout(() => {
+                isLongPress = true;
+                if (selectedChar !== 'ERASE') confirmChar(r, c, cell); 
+            }, 400);
+        }
+
+        function handlePointerUp(e, r, c, cell) {
+            clearTimeout(pressTimer); 
+            if (!isLongPress && selectedChar) {
+                if (selectedChar === 'X' || selectedChar === 'ERASE') confirmChar(r, c, cell); 
+                else toggleMark(r, c, cell);  
+            }
+        }
+
+        function handlePointerLeave() { clearTimeout(pressTimer); }
+
+        function toggleMark(r, c, cell) {
+            let data = gridData[r][c];
+            if (data.confirmed && data.confirmed !== 'X') return;
+            
+            saveState(); 
+            data.confirmed = ''; 
+            if (data.marks.has(selectedChar)) data.marks.delete(selectedChar);
+            else data.marks.add(selectedChar);
+            
+            renderCell(r, c, cell);
+            checkSudokuRules();
+        }
+
+        function confirmChar(r, c, cell) {
+            saveState(); 
+            let data = gridData[r][c];
+
+            if (selectedChar === 'ERASE') {
+                data.confirmed = '';
+                data.marks.clear();
+            } else if (selectedChar === 'X') {
+                data.confirmed = 'X';
+                data.marks.clear();
+            } else {
+                data.confirmed = selectedChar;
+                data.marks.clear(); 
+                
+                for (let i = 0; i < size; i++) {
+                    if (i !== c) {
+                        let targetData = gridData[r][i];
+                        if (!targetData.confirmed || targetData.confirmed === 'X') {
+                            targetData.confirmed = 'X';
+                            targetData.marks.clear();
+                            renderCell(r, i, document.getElementById(`cell-${r}-${i}`));
+                        }
+                    }
+                    if (i !== r) {
+                        let targetData = gridData[i][c];
+                        if (!targetData.confirmed || targetData.confirmed === 'X') {
+                            targetData.confirmed = 'X';
+                            targetData.marks.clear();
+                            renderCell(i, c, document.getElementById(`cell-${i}-${c}`));
+                        }
+                    }
+                }
+            }
+            
+            renderCell(r, c, cell);
+            checkSudokuRules();
+            updateUsedCharacters();
+            
+            cell.style.transform = "scale(0.9)";
+            setTimeout(() => cell.style.transform = "scale(1)", 100);
+        }
+
+        function renderCell(r, c, cell) {
+            const data = gridData[r][c];
+            cell.innerHTML = '';
+            
+            if (data.confirmed) {
+                if (data.confirmed === 'X') {
+                    cell.innerHTML = '<div class="cell-x">X</div>';
+                } else {
+                    cell.innerHTML = `<div class="cell-text">${data.confirmed}</div>`;
+                }
+            } else if (data.marks.size > 0) {
+                const marksDiv = document.createElement('div');
+                marksDiv.className = 'marks-container';
+                Array.from(data.marks).sort().forEach(mark => {
+                    const m = document.createElement('div');
+                    m.className = 'mark-item';
+                    m.innerText = mark;
+                    marksDiv.appendChild(m);
+                });
+                cell.appendChild(marksDiv);
+            }
+        }
+
+        function checkSudokuRules() {
+            const cells = document.querySelectorAll('.cell');
+            cells.forEach(cell => cell.classList.remove('error'));
+
+            for (let r = 0; r < size; r++) {
+                let persons = 0;
+                for (let c = 0; c < size; c++) {
+                    let val = gridData[r][c].confirmed;
+                    if (val && val !== 'X') persons++;
+                }
+                if (persons > 1) cells.forEach(cell => { if (parseInt(cell.dataset.r) === r) cell.classList.add('error'); });
+            }
+
+            for (let c = 0; c < size; c++) {
+                let persons = 0;
+                for (let r = 0; r < size; r++) {
+                    let val = gridData[r][c].confirmed;
+                    if (val && val !== 'X') persons++;
+                }
+                if (persons > 1) cells.forEach(cell => { if (parseInt(cell.dataset.c) === c) cell.classList.add('error'); });
+            }
+        }
+
+        function updateGridTransform() {
+            const x = document.getElementById('posX').value;
+            const y = document.getElementById('posY').value;
+            const w = document.getElementById('width').value;
+            const h = document.getElementById('height').value;
+
+            const gridOverlay = document.getElementById('grid-overlay');
+            gridOverlay.style.left = `${x}px`;
+            gridOverlay.style.top = `${y}px`;
+            gridOverlay.style.width = `${w}px`;
+            gridOverlay.style.height = `${h}px`;
+
+            localStorage.setItem(`murdoku_grid_cfg_${currentLevel}`, JSON.stringify({ x, y, w, h, size }));
+        }
+
+        function loadLevelConfig() {
+            const cfg = JSON.parse(localStorage.getItem(`murdoku_grid_cfg_${currentLevel}`) || '{}');
+            if (cfg.x !== undefined) {
+                document.getElementById('posX').value = cfg.x;
+                document.getElementById('posY').value = cfg.y;
+                document.getElementById('width').value = cfg.w;
+                document.getElementById('height').value = cfg.h;
+                document.getElementById('gridSize').value = cfg.size || 6;
+                size = cfg.size || 6;
+            }
+        }
+
+        function setZoom(zoom) {
+            currentZoom = Math.max(0.1, Math.min(2.0, zoom));
+            document.getElementById('workspace').style.transform = `scale(${currentZoom})`;
+            document.getElementById('zoomPercent').innerText = `${Math.round(currentZoom * 100)}%`;
+            document.getElementById('zoomRange').value = currentZoom;
+        }
+
+        function changeZoom(delta) { setZoom(currentZoom + delta); }
+
+        function autoFitZoom() {
+            const container = document.getElementById('workspaceContainer');
+            if (!container || !rawCanvasWidth || !rawCanvasHeight) return;
+
+            const padding = 40;
+            const availableWidth = container.clientWidth - padding;
+            const availableHeight = container.clientHeight - padding;
+
+            if (availableWidth > 0 && availableHeight > 0) {
+                const scaleX = availableWidth / rawCanvasWidth;
+                const scaleY = availableHeight / rawCanvasHeight;
+                setZoom(Math.min(scaleX, scaleY));
+            }
+        }
+
+        function resetZoom() { autoFitZoom(); }
+
+        function clearDatabase() {
+            if (confirm("确定要删除本地保存的所有 PDF 缓存和网格配置吗？")) {
+                if (db) {
+                    const tx = db.transaction("pdfStore", "readwrite");
+                    tx.objectStore("pdfStore").clear();
+                    tx.oncomplete = () => { localStorage.clear(); location.reload(); };
+                } else {
+                    localStorage.clear();
+                    location.reload();
+                }
+            }
+        }
+
+        function showLoading(show) {
+            document.getElementById('pdf-loading').style.display = show ? 'block' : 'none';
+        }
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            await initDB();
+            const cachedMain = await getFromDB('mainPdf');
+            const cachedAns = await getFromDB('ansPdf');
+
+            if (cachedMain) {
+                try {
+                    showLoading(true);
+                    await parseMainPdf(cachedMain);
+                    if (cachedAns) await parseAnsPdf(cachedAns);
+                } catch (e) {
+                    console.warn('缓存数据读取异常', e);
+                } finally {
+                    showLoading(false);
+                }
+            } else {
+                generateGrid(); 
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            if (mainPdfDoc) autoFitZoom();
+        });
+    </script>
+</body>
+</html>
